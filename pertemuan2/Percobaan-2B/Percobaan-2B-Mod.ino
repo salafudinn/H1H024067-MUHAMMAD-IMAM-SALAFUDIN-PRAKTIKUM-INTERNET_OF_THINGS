@@ -1,101 +1,81 @@
-#include <DHT.h>
+#include <WiFi.h>
 
+// Kredensial untuk Mode Station (Terhubung ke WiFi Rumah/Hotspot)
+const char* sta_ssid = "NAMA_WIFI_RUMAH";
+const char* sta_password = "PASSWORD_WIFI_RUMAH";
 
+// Kredensial untuk Mode Access Point (Hotspot lokal ESP32)
+const char* ap_ssid = "ESP32_AccessPoint";
+const char* ap_password = "12345678"; // Minimal 8 karakter
 
-#define DHTPIN 4
-
-#define DHTTYPE DHT22
-
-#define RELAYPIN 26
-
-
-
-DHT dht(DHTPIN, DHTTYPE);
-
-
-
-// Definisikan dua ambang batas (Histerisis)
-
-const float thresholdAtas = 30.0; // Aktuator menyala di atas 30 °C
-
-const float thresholdBawah = 28.0; // Aktuator mati di bawah 28 °C
-
-
-
-bool statusRelay = false; // Menyimpan state status relay saat ini
-
-
+const int ledPin = 2; // LED indikator koneksi Station
 
 void setup() {
-
   Serial.begin(115200);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
 
-  dht.begin();
+  // Set mode WiFi menjadi kombinasi Access Point dan Station
+  WiFi.mode(WIFI_AP_STA);
 
-  pinMode(RELAYPIN, OUTPUT);
+  // 1. Mengaktifkan Access Point
+  WiFi.softAP(ap_ssid, ap_password);
+  IPAddress apIP = WiFi.softAPIP();
+  
+  Serial.println("=== Access Point Aktif ===");
+  Serial.print("SSID AP      : ");
+  Serial.println(ap_ssid);
+  Serial.print("IP Address AP: ");
+  Serial.println(apIP);
+  Serial.println("==========================");
 
-  digitalWrite(RELAYPIN, LOW); // Kondisi awal OFF
+  // 2. Menghubungkan ke jaringan WiFi Station
+  WiFi.begin(sta_ssid, sta_password);
+  Serial.print("Menghubungkan ke WiFi Station (");
+  Serial.print(sta_ssid);
+  Serial.println(")...");
 
-}
-
-
-
-void loop() {
-
-  float suhu = dht.readTemperature();
-
-
-
-  if (isnan(suhu)) {
-
-    Serial.println("Gagal membaca data sensor!");
-
-  } else {
-
-    Serial.print("Suhu: ");
-
-    Serial.print(suhu);
-
-    Serial.print(" °C -> ");
-
-
-
-    // Logika Histerisis
-
-    if (suhu > thresholdAtas) {
-
-      statusRelay = true;
-
-    } else if (suhu < thresholdBawah) {
-
-      statusRelay = false;
-
-    }
-
-    // Jika suhu berada di antara 28.0 dan 30.0 °C, statusRelay TIDAK berubah (mempertahankan state terakhir)
-
-
-
-    // Penerapan hasil kendali ke pin hardware
-
-    if (statusRelay) {
-
-      digitalWrite(RELAYPIN, HIGH);
-
-      Serial.println("Aktuator: ON");
-
-    } else {
-
-      digitalWrite(RELAYPIN, LOW);
-
-      Serial.println("Aktuator: OFF");
-
-    }
-
+  // Timeout koneksi Station (maksimal 10 detik/20 iterasi)
+  int counter = 0;
+  while (WiFi.status() != WL_CONNECTED && counter < 20) {
+    delay(500);
+    Serial.print(".");
+    counter++;
   }
 
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.println("=== Station Terhubung ===");
+    Serial.print("IP Address STA : ");
+    Serial.println(WiFi.localIP());
+    Serial.print("MAC Address    : ");
+    Serial.println(WiFi.macAddress());
+    Serial.print("RSSI (dBm)     : ");
+    Serial.println(WiFi.RSSI());
+    Serial.println("=========================");
+    digitalWrite(ledPin, HIGH);
+  } else {
+    Serial.println();
+    Serial.println("[Peringatan] Gagal terhubung ke Station, AP tetap berjalan.");
+  }
+}
 
+void loop() {
+  // Menampilkan jumlah client yang terhubung ke AP ESP32
+  int jumlahClient = WiFi.softAPgetStationNum();
+  Serial.print("[AP] Perangkat terhubung: ");
+  Serial.println(jumlahClient);
 
-  delay(2000);
+  // Memeriksa status koneksi Station
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("[STA] Terhubung | IP STA: ");
+    Serial.println(WiFi.localIP());
+    digitalWrite(ledPin, HIGH);
+  } else {
+    Serial.println("[STA] Terputus! Memproses reconnect...");
+    digitalWrite(ledPin, LOW);
+    WiFi.reconnect();
+  }
 
+  delay(5000);
 }
